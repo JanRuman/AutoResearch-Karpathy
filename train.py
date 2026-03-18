@@ -448,7 +448,7 @@ FINAL_LR_FRAC = 0.0     # final LR as fraction of initial
 
 # Model size
 DEPTH = 4               # number of transformer layers (T4)
-DEVICE_BATCH_SIZE = 8   # per-device batch size (T4: reduced for more steps)
+DEVICE_BATCH_SIZE = 4   # per-device batch size (must be <= TOTAL_BATCH_SIZE / seq_len)
 
 # ---------------------------------------------------------------------------
 # Setup: tokenizer, model, optimizer, dataloader
