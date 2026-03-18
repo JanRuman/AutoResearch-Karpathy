@@ -19,9 +19,12 @@ import torch.nn.functional as F
 
 from kernels import get_kernel
 cap = torch.cuda.get_device_capability()
-# varunneal's FA3 is Hopper only, use kernels-community on non-Hopper GPUs
-repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
-fa3 = get_kernel(repo).flash_attn_interface
+# Flash Attention 3 requires Ampere (8.x) or Hopper (9.x); fall back to SDPA on older GPUs
+if cap[0] >= 8:
+    repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
+    fa3 = get_kernel(repo).flash_attn_interface
+else:
+    fa3 = None
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
@@ -90,7 +93,19 @@ class CausalSelfAttention(nn.Module):
         q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         q, k = norm(q), norm(k)
 
-        y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
+        if fa3 is not None:
+            y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
+        else:
+            # SDPA fallback for GPUs older than Ampere (e.g. T4)
+            q2 = q.transpose(1, 2)  # (B, n_head, T, head_dim)
+            k2 = k.transpose(1, 2)  # (B, n_kv_head, T, head_dim)
+            v2 = v.transpose(1, 2)
+            if self.n_kv_head != self.n_head:
+                r = self.n_head // self.n_kv_head
+                k2 = k2.repeat_interleave(r, dim=1)
+                v2 = v2.repeat_interleave(r, dim=1)
+            y = F.scaled_dot_product_attention(q2, k2, v2, is_causal=True)
+            y = y.transpose(1, 2)
         y = y.contiguous().view(B, T, -1)
         y = self.c_proj(y)
         return y
