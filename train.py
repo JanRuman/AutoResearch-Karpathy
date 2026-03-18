@@ -25,6 +25,8 @@ if cap[0] >= 8:
     fa3 = get_kernel(repo).flash_attn_interface
 else:
     fa3 = None
+    # Disable PyTorch's internal Flash Attention backend (requires Ampere+)
+    torch.backends.cuda.enable_flash_sdp(False)
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
